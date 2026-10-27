@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fluttergarden</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.1/p5.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #d4edda; font-family: system-ui, -apple-system, Segoe UI, sans-serif; overflow: hidden; }
+    #ui {
+      position: absolute; top: 12px; left: 12px; z-index: 10;
+      background: rgba(255,255,255,0.92); padding: 14px; border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12); max-width: 320px;
+    }
+    h1 { margin: 0 0 8px 0; font-size: 1.4rem; color: #2e7d32; }
+    p { margin: 0 0 10px 0; font-size: 0.85rem; color: #555; line-height: 1.4; }
+    button, select, input[type="color"] {
+      margin: 4px 4px 4px 0; padding: 8px 12px; border: none; border-radius: 8px;
+      background: #66bb6a; color: white; cursor: pointer; font-size: 0.85rem;
+    }
+    button:hover { background: #4caf50; }
+    button.secondary { background: #90a4ae; }
+    button.secondary:hover { background: #78909c; }
+    #brush-size { width: 100px; vertical-align: middle; }
+    .hidden { display: none; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <h1>🦋 Fluttergarden</h1>
+    <p id="instructions">Draw your butterfly on the canvas, then release it into the garden.</p>
+    <div id="draw-controls">
+      <input type="color" id="color-picker" value="#ff6b9d">
+      <label>Size: <input type="range" id="brush-size" min="2" max="30" value="8"></label><br>
+      <button id="eraser">Eraser</button>
+      <button id="clear">Clear</button>
+      <button id="template">Template</button><br>
+      <button id="release" style="background:#ab47bc;">✨ Release into Garden</button>
+    </div>
+    <div id="garden-controls" class="hidden">
+      <button id="back-to-draw">← Draw Another</button>
+      <button id="add-flower" class="secondary">Add Flower</button>
+      <button id="clear-garden" class="secondary">Clear Garden</button>
+    </div>
+  </div>
+
+  <script>
+    let mode = 'draw'; // 'draw' or 'garden'
+    let drawCanvas, gardenCanvas;
+    let butterflies = [];
+    let flowers = [];
+    let particles = [];
+    let brushColor = '#ff6b9d';
+    let brushSize = 8;
+    let isEraser = false;
+    let drawing = false;
+
+    // UI elements
+    const colorPicker = document.getElementById('color-picker');
+    const brushSlider = document.getElementById('brush-size');
+    const eraserBtn = document.getElementById('eraser');
+    const clearBtn = document.getElementById('clear');
+    const templateBtn = document.getElementById('template');
+    const releaseBtn = document.getElementById('release');
+    const backBtn = document.getElementById('back-to-draw');
+    const addFlowerBtn = document.getElementById('add-flower');
+    const clearGardenBtn = document.getElementById('clear-garden');
+    const drawControls = document.getElementById('draw-controls');
+    const gardenControls = document.getElementById('garden-controls');
+    const instructions = document.getElementById('instructions');
+
+    colorPicker.addEventListener('input', e => brushColor = e.target.value);
+    brushSlider.addEventListener('input', e => brushSize = +e.target.value);
+    eraserBtn.addEventListener('click', () => { isEraser = !isEraser; eraserBtn.textContent = isEraser ? 'Brush' : 'Eraser'; });
+    clearBtn.addEventListener('click', () => drawCanvas.clear());
+    templateBtn.addEventListener('click', drawTemplate);
+    releaseBtn.addEventListener('click', releaseButterfly);
+    backBtn.addEventListener('click', () => switchMode('draw'));
+    addFlowerBtn.addEventListener('click', () => flowers.push(new Flower(random(width), random(height * 0.7, height - 40))));
+    clearGardenBtn.addEventListener('click', () => { butterflies = []; flowers = []; });
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      pixelDensity(1);
+      drawCanvas = createGraphics(width, height);
+      drawCanvas.background(255, 0); // transparent
+      drawCanvas.strokeWeight(8);
+      drawCanvas.strokeCap(ROUND);
+      switchMode('draw');
+      // Seed some flowers
+      for (let i = 0; i < 8; i++) flowers.push(new Flower(random(width), random(height * 0.65, height - 30)));
+    }
+
+    function windowResized() {
+      resizeCanvas(windowWidth, windowHeight);
+    }
+
+    function draw() {
+      if (mode === 'draw') {
+        background(245, 250, 245);
+        // Center guide
+        stroke(200, 220, 200);
+        strokeWeight(1);
+        line(width/2, 0, width/2, height);
+        noStroke();
+        image(drawCanvas, 0, 0);
+        // Cursor
+        noFill();
+        stroke(brushColor);
+        strokeWeight(1);
+        ellipse(mouseX, mouseY, brushSize, brushSize);
+      } else {
+        drawGarden();
+        updateAndDrawButterflies();
+        updateParticles();
+      }
+    }
+
+    function mousePressed() {
+      if (mode === 'draw' && mouseY > 0) drawing = true;
+    }
+    function mouseReleased() { drawing = false; }
+    function mouseDragged() {
+      if (mode === 'draw' && drawing) {
+        drawCanvas.stroke(isEraser ? color(255, 0) : brushColor);
+        drawCanvas.strokeWeight(brushSize);
+        drawCanvas.line(pmouseX, pmouseY, mouseX, mouseY);
+      }
+    }
+
+    function drawTemplate() {
+      drawCanvas.clear();
+      drawCanvas.push();
+      drawCanvas.translate(width/2, height/2);
+      // Simple butterfly template
+      drawCanvas.stroke(brushColor);
+      drawCanvas.strokeWeight(3);
+      drawCanvas.noFill();
+      // Left wing
+      drawCanvas.beginShape();
+      for (let a = 0; a < PI; a += 0.1) {
+        let r = 80 + sin(a * 3) * 40;
+        drawCanvas.vertex(-cos(a) * r, -sin(a) * r * 0.8);
+      }
+      drawCanvas.endShape();
+      // Right wing (mirror)
+      drawCanvas.beginShape();
+      for (let a = 0; a < PI; a += 0.1) {
+        let r = 80 + sin(a * 3) * 40;
+        drawCanvas.vertex(cos(a) * r, -sin(a) * r * 0.8);
+      }
+      drawCanvas.endShape();
+      // Body
+      drawCanvas.strokeWeight(6);
+      drawCanvas.line(0, -20, 0, 60);
+      drawCanvas.ellipse(0, -30, 12, 16);
+      drawCanvas.pop();
+    }
+
+    function releaseButterfly() {
+      let img = drawCanvas.get();
+      // Trim empty space roughly
+      butterflies.push(new Butterfly(img, random(width), random(height * 0.3, height * 0.7)));
+      drawCanvas.clear();
+      switchMode('garden');
+    }
+
+    function switchMode(newMode) {
+      mode = newMode;
+      if (mode === 'draw') {
+        drawControls.classList.remove('hidden');
+        gardenControls.classList.add('hidden');
+        instructions.textContent = 'Draw your butterfly (center line is the body). Release it when ready.';
+      } else {
+        drawControls.classList.add('hidden');
+        gardenControls.classList.remove('hidden');
+        instructions.textContent = butterflies.length + ' butterflies in the garden. Draw more or just watch.';
+      }
+    }
+
+    // ---------- Garden ----------
+    function drawGarden() {
+      // Sky
+      for (let y = 0; y < height; y++) {
+        let inter = map(y, 0, height, 0, 1);
+        let c = lerpColor(color(135, 206, 235), color(255, 248, 220), inter);
+        stroke(c);
+        line(0, y, width, y);
+      }
+      // Soft hills
+      noStroke();
+      fill(100, 180, 100, 180);
+      beginShape();
+      vertex(0, height);
+      for (let x = 0; x <= width; x += 20) {
+        vertex(x, height * 0.72 + sin(x * 0.01 + frameCount * 0.002) * 15);
+      }
+      vertex(width, height);
+      endShape(CLOSE);
+      // Grass
+      fill(80, 160, 80);
+      rect(0, height * 0.78, width, height);
+      // Flowers
+      for (let f of flowers) f.show();
+    }
+
+    class Flower {
+      constructor(x, y) {
+        this.x = x; this.y = y;
+        this.petalColor = color(random(180, 255), random(80, 180), random(100, 220));
+        this.size = random(18, 32);
+      }
+      show() {
+        push();
+        translate(this.x, this.y);
+        // Stem
+        stroke(60, 140, 60); strokeWeight(3);
+        line(0, 0, 0, 40);
+        // Petals
+        noStroke();
+        for (let i = 0; i < 6; i++) {
+          fill(this.petalColor);
+          let a = TWO_PI / 6 * i + sin(frameCount * 0.02 + this.x) * 0.1;
+          ellipse(cos(a) * this.size * 0.6, sin(a) * this.size * 0.4, this.size * 0.7, this.size * 0.5);
+        }
+        fill(255, 220, 100);
+        ellipse(0, 0, this.size * 0.4);
+        pop();
+      }
+    }
+
+    class Butterfly {
+      constructor(img, x, y) {
+        this.img = img;
+        this.x = x; this.y = y;
+        this.vx = random(-1.2, 1.2);
+        this.vy = random(-0.8, 0.8);
+        this.angle = 0;
+        this.flap = random(TWO_PI);
+        this.scale = random(0.35, 0.55);
+        this.name = 'Butterfly';
+      }
+      update() {
+        // Gentle wandering + slight attraction to flowers
+        this.flap += 0.15;
+        this.x += this.vx;
+        this.y += this.vy + sin(this.flap * 0.5) * 0.3;
+        // Bounce softly
+        if (this.x < 40 || this.x > width - 40) this.vx *= -1;
+        if (this.y < 60 || this.y > height - 80) this.vy *= -1;
+        // Occasional direction change
+        if (random() < 0.01) {
+          this.vx += random(-0.4, 0.4);
+          this.vy += random(-0.3, 0.3);
+          this.vx = constrain(this.vx, -2, 2);
+          this.vy = constrain(this.vy, -1.5, 1.5);
+        }
+        this.angle = atan2(this.vy, this.vx) * 0.3; // slight lean
+        // Sparkles
+        if (random() < 0.08) particles.push(new Particle(this.x, this.y));
+      }
+      show() {
+        this.update();
+        push();
+        translate(this.x, this.y);
+        rotate(this.angle);
+        let flapAmount = sin(this.flap) * 0.25;
+        // Draw with flapping illusion by scaling horizontally
+        scale(this.scale * (1 + flapAmount), this.scale);
+        imageMode(CENTER);
+        image(this.img, 0, 0);
+        pop();
+      }
+    }
+
+    function updateAndDrawButterflies() {
+      for (let b of butterflies) b.show();
+    }
+
+    class Particle {
+      constructor(x, y) {
+        this.x = x; this.y = y;
+        this.life = 255;
+        this.vx = random(-0.5, 0.5);
+        this.vy = random(-1, -0.2);
+      }
+      update() {
+        this.x += this.vx; this.y += this.vy;
+        this.life -= 4;
+      }
+      show() {
+        noStroke();
+        fill(255, 255, 200, this.life);
+        ellipse(this.x, this.y, 4);
+      }
+    }
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].update();
+        particles[i].show();
+        if (particles[i].life <= 0) particles.splice(i, 1);
+      }
+    }
+  </script>
+</body>
+</html>
